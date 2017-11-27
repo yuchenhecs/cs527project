@@ -3,51 +3,19 @@ import os
 import re
 import docker
 import yaml
+import argparse
 
 def check_docker():
+    # check if docker cli is running
     client = docker.from_env()
     print(client.ping())
-
-
-# def create_main_container():
-#     client = docker.APIClient(
-#         **docker.utils.kwargs_from_env(assert_hostname=False)
-#     )
-#     container = client.create_container(
-#         "ubuntu:trusty", "/bin/sleep 300000", detach=True, ports=[10000], name="c1")
-#     client.start(container=container.get('Id'))
-#     print("c1 created")
-
-
-# def create_children_container():
-#     client = docker.APIClient(
-#         **docker.utils.kwargs_from_env(assert_hostname=False)
-#     )
-
-#     host_config = client.create_host_config(
-#         links=[("c1","c1")]
-#     )
-
-#     container = client.create_container(
-#         "ubuntu:trusty", "sh -c \"ping $C1_PORT_10000_TCP_ADDR\"", detach=True, host_config=host_config, name="c2")
-#     client.start(container=container.get('Id'))
-#     print("c2 created")
 
 def create_container(config):
     client = docker.APIClient(
         **docker.utils.kwargs_from_env(assert_hostname=False)
     )
 
-
     volumes = list(config.get("volumes", {}).values()) or None
-
-    # links=[]
-    # for link in config.get("links", []):
-    #     links.append((link, link))
-    
-    # host_config = client.create_host_config(
-    #     links=links
-    # )
 
     host_config = client.create_host_config(
         binds=config.get("volumes"),
@@ -71,16 +39,16 @@ def create_container(config):
     container_id = container.get("Id")
     client.start(container=container_id)
 
-   
-    
     if config.get("chaos"):
         device = get_container_device(client, container_id)
         cmd = ["tc", "qdisc", "replace", "dev", device, "root", "netem"] + config.get("chaos").split()
         output = run(client, container_id, cmd)
         print(output)
+
+
+    #test = client.inspect_container("c1")
+    #print(test)
             
-
-
     print("Container "+config["name"]+" created!")
 
 
@@ -95,18 +63,13 @@ def run( client, container_id, command):
 def get_container_device( docker_client, container_id):
     container_idx = get_container_device_index(docker_client, container_id)
 
-    # all my experiments showed the host device index was
-    # one greater than its associated container device index
     host_idx = container_idx 
-
     cmd = 'ip link'
     host_res = run(docker_client, container_id, cmd)
     host_rgx = '^%d: ([^:@]+)[:@]' % host_idx
     host_match = re.search(host_rgx, host_res, re.M)
     if host_match:
         return host_match.group(1)
-
-
 
 def get_container_device_index(docker_client, container_id):
     cmd_args = ['cat', '/sys/class/net/eth0/ifindex']
@@ -188,15 +151,21 @@ def _dictify(data, name='input', key_mod=lambda x: x, value_mod=lambda x: x):
     else:
         return {}
 
-def main(args=None):
-    with open("blockade.yaml") as f:
+def process_yaml(config_file):
+    with open(config_file) as f:
         d = yaml.safe_load(f)
         parse_config(d)
 
-    # return 
-    # check_docker()
-    # create_main_container()
-    # create_children_container()
+def main(args=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", metavar="blockade.yaml",
+                        help="Config YAML.")
+    
+    args = parser.parse_args()
+    config_file = args.config or "blockade.yaml"
+
+    process_yaml(config_file)
+    
 
 
 if __name__ == '__main__':
