@@ -8,8 +8,16 @@ containers:
     image: ubuntu:trusty
     command: sh -c "ping $C1_PORT_10000_TCP_ADDR"
     links: ["c1"]
+    chaos: duplicate 50%
 
   c3:
     image: ubuntu:trusty
     command: sh -c "ping $C1_PORT_10000_TCP_ADDR"
     links: ["c1"]
+    chaos: loss 50%
+
+  c4:
+    image: ubuntu:trusty
+    command: sh -c "ping $C1_PORT_10000_TCP_ADDR"
+    links: ["c1"]
+    chaos: delay 1000ms
