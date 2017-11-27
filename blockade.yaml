@@ -3,6 +3,7 @@ containers:
     image: ubuntu:trusty
     command: /bin/sleep 300000
     ports: [10000]
+    volumes: {"/Users/mac/Desktop/CS527/cs527project/volume": "/opt/myapp"}
 
   c2:
     image: ubuntu:trusty
