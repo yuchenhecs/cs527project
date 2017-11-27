@@ -3,7 +3,12 @@ containers:
     image: ubuntu:trusty
     command: /bin/sleep 300000
     ports: [10000]
+    expose: [12345]
     volumes: {"/Users/mac/Desktop/CS527/cs527project/volume": "/opt/myapp"}
+    environment : {"deep" : "purple"}
+    hostname: myhost
+    dns: ["8.8.8.8"]
+    cap_add: ["SYS_ADMIN"]
 
   c2:
     image: ubuntu:trusty

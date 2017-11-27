@@ -44,10 +44,6 @@ def create_container(config):
         cmd = ["tc", "qdisc", "replace", "dev", device, "root", "netem"] + config.get("chaos").split()
         output = run(client, container_id, cmd)
         print(output)
-
-
-    #test = client.inspect_container("c1")
-    #print(test)
             
     print("Container "+config["name"]+" created!")
 
@@ -96,6 +92,13 @@ def parse_config(config):
 
     for container_config in container_list:
         create_container(container_config)
+
+    
+    # client = docker.APIClient(
+    #     **docker.utils.kwargs_from_env(assert_hostname=False)
+    # )
+    # test = client.inspect_container("c1")
+    # print(test)
 
 
 def dependency_sorted(containers):
