@@ -5,10 +5,12 @@ import docker
 import yaml
 import argparse
 
+
 def check_docker():
     # check if docker cli is running
     client = docker.from_env()
     print(client.ping())
+
 
 def create_container(config):
     client = docker.APIClient(
@@ -26,29 +28,30 @@ def create_container(config):
         cap_add=config.get("cap_add"))
 
     container = client.create_container(
-        config["image"], 
-        command=config.get("command"), 
-        detach=True, 
-        ports=config.get("expose"), 
+        config["image"],
+        command=config.get("command"),
+        detach=True,
+        ports=config.get("expose"),
         volumes=volumes,
         hostname=config.get("hostname"),
         environment=config.get("environment"),
-        host_config=host_config, 
+        host_config=host_config,
         name=config.get("name"))
-    
+
     container_id = container.get("Id")
     client.start(container=container_id)
 
     if config.get("chaos"):
         device = get_container_device(client, container_id)
-        cmd = ["tc", "qdisc", "replace", "dev", device, "root", "netem"] + config.get("chaos").split()
+        cmd = ["tc", "qdisc", "replace", "dev", device,
+               "root", "netem"] + config.get("chaos").split()
         output = run(client, container_id, cmd)
         print(output)
-            
-    print("Container "+config["name"]+" created!")
+
+    print("Container " + config["name"] + " created!")
 
 
-def run( client, container_id, command):
+def run(client, container_id, command):
     def _exec():
         exec_handle = client.exec_create(container_id, command)
         output = client.exec_start(exec_handle).decode('utf-8')
@@ -56,10 +59,11 @@ def run( client, container_id, command):
 
     return _exec()
 
-def get_container_device( docker_client, container_id):
+
+def get_container_device(docker_client, container_id):
     container_idx = get_container_device_index(docker_client, container_id)
 
-    host_idx = container_idx 
+    host_idx = container_idx
     cmd = 'ip link'
     host_res = run(docker_client, container_id, cmd)
     host_rgx = '^%d: ([^:@]+)[:@]' % host_idx
@@ -67,33 +71,96 @@ def get_container_device( docker_client, container_id):
     if host_match:
         return host_match.group(1)
 
+
 def get_container_device_index(docker_client, container_id):
     cmd_args = ['cat', '/sys/class/net/eth0/ifindex']
-    res = run(docker_client,container_id,cmd_args)
+    res = run(docker_client, container_id, cmd_args)
     return int(res)
-    
-def parse_config(config):    
+
+
+def get_tc_qdisc_status(docker_client, container_id, status):
+    cmd_args = ['tc', 'q']
+    host_res = run(docker_client, container_id, cmd_args)
+
+    host_rgx = "dev eth0 root refcnt 2 limit 1000 " + status
+    host_match = re.search(host_rgx, host_res, re.M)
+    if host_match:
+        return True
+    else:
+        return False
+
+
+def get_ping_response_duplicate(docker_client, container_id, host_ip):
+    cmd_args = ["ping", host_ip, "-c", "10"]
+    host_res = run(docker_client, container_id, cmd_args)
+    host_rgx = "(DUP!)"
+    host_match = re.search(host_rgx, host_res, re.M)
+    if host_match:
+        return True
+    return False
+
+
+def get_ping_response_loss(docker_client, container_id, host_ip):
+    cmd_args = ["ping", host_ip, "-c", "10"]
+    host_res = run(docker_client, container_id, cmd_args)
+    host_rgx = "icmp_seq=([0-9]+)"
+    host_match = re.finditer(host_rgx, host_res, re.M)
+    if host_match:
+        prev = 0
+        while True:
+            try:
+                match = next(host_match)
+            except StopIteration:
+                break
+            index = int(match.group(1))
+            if index - 1 == prev:
+                prev = index + 1
+            else:
+                return True            
+
+        return False
+    return False
+
+def get_ping_response_delay(docker_client, container_id, host_ip):
+    cmd_args = ["ping",host_ip,"-c","5"]
+    host_res = run(docker_client, container_id, cmd_args)
+    host_rgx = "time=([0-9]+)"
+    host_match = re.search(host_rgx, host_res, re.M)
+    if host_match:
+        match = host_match.group(0)
+        if int(match[5:]) > 1000:
+            return True
+        return False
+    return False
+
+
+
+def parse_config(config):
     for container_name, container_config in config["containers"].items():
         container_config["name"] = container_name
-        container_config["links"] = _dictify(container_config.get("links"), 'links')
-        container_config["volumes"] = _dictify(container_config.get("volumes"), 'volumes', lambda x: os.path.abspath(x))
-        container_config["ports"] = _dictify(container_config.get("ports"), 'ports')
+        container_config["links"] = _dictify(
+            container_config.get("links"), 'links')
+        container_config["volumes"] = _dictify(container_config.get(
+            "volumes"), 'volumes', lambda x: os.path.abspath(x))
+        container_config["ports"] = _dictify(
+            container_config.get("ports"), 'ports')
         container_config["cap_add"] = container_config.get("cap_add", [])
         container_config["cap_add"].append("NET_ADMIN")
 
         container_config["expose"] = list(set(
             int(port) for port in
-            container_config.get("expose", []) + list(container_config.get("ports",{}).values())
+            container_config.get("expose", []) +
+            list(container_config.get("ports", {}).values())
         ))
 
-        container_config["environment"] = _dictify(container_config.get("environment"),'environment')
-        
+        container_config["environment"] = _dictify(
+            container_config.get("environment"), 'environment')
+
     container_list = dependency_sorted(config["containers"])
 
     for container_config in container_list:
         create_container(container_config)
 
-    
     # client = docker.APIClient(
     #     **docker.utils.kwargs_from_env(assert_hostname=False)
     # )
@@ -102,9 +169,10 @@ def parse_config(config):
 
 
 def dependency_sorted(containers):
-    container_links = dict((name, set(c.get("links")))   for name, c in containers.items())                  
+    container_links = dict((name, set(c.get("links")))
+                           for name, c in containers.items())
     sorted_names = _resolve(container_links)
-    return [ containers[name] for name in sorted_names]
+    return [containers[name] for name in sorted_names]
 
 
 def _resolve(d):
@@ -154,21 +222,22 @@ def _dictify(data, name='input', key_mod=lambda x: x, value_mod=lambda x: x):
     else:
         return {}
 
+
 def process_yaml(config_file):
     with open(config_file) as f:
         d = yaml.safe_load(f)
         parse_config(d)
 
+
 def main(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", "-c", metavar="blockade.yaml",
                         help="Config YAML.")
-    
+
     args = parser.parse_args()
     config_file = args.config or "blockade.yaml"
 
     process_yaml(config_file)
-    
 
 
 if __name__ == '__main__':
